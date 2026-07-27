@@ -10,6 +10,40 @@ from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import socket
+
+def gmail_gonder(to_email: str, subject: str, text_content: str):
+    if not GMAIL_USER or not GMAIL_PWD:
+        raise RuntimeError("GMAIL_USER veya GMAIL_PWD çevre değişkenleri tanımlanmamış!")
+
+    # Render'ın IPv6 takılmasını engelleyen IPv4 zorlaması
+    old_gai = socket.getaddrinfo
+    def custom_gai(*args, **kwargs):
+        res = old_gai(*args, **kwargs)
+        return [item for item in res if item[0] == socket.AF_INET]
+    
+    socket.getaddrinfo = custom_gai
+
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = GMAIL_USER
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(text_content, 'plain', 'utf-8'))
+
+        # Port 587 ve TLS kullanımı time-out hatalarında daha kararlıdır
+        server = smtplib.SMTP('smtp.gmail.com', 587, timeout=10)
+        server.ehlo()
+        server.starttls()  # Şifreli tünele geçiş yap
+        server.ehlo()
+        server.login(GMAIL_USER, GMAIL_PWD)
+        server.sendmail(GMAIL_USER, [to_email], msg.as_string())
+        server.quit()
+
+    except Exception as e:
+        raise RuntimeError(f"Gmail gönderme hatası: {str(e)}")
+    finally:
+        # Soket ayarını eski haline getir
+        socket.getaddrinfo = old_gai
 app = FastAPI(title="E-Ticaret OTP Sunucusu")
 
 # CORS AYARLARI: React projenizin sunucuya erişebilmesi için zorunludur
@@ -31,39 +65,6 @@ GMAIL_PWD = os.environ.get("GMAIL_PWD")
 class EncryptedPayload(BaseModel):
     payload: str  # React'ten gelecek base64 şifreli metin
 
-def gmail_gonder(to_email: str, subject: str, text_content: str):
-    if not GMAIL_USER or not GMAIL_PWD:
-        raise RuntimeError("GMAIL_USER veya GMAIL_PWD çevre değişkenleri tanımlanmamış!")
-
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = GMAIL_USER
-        msg['To'] = to_email
-        msg['Subject'] = subject
-        msg.attach(MIMEText(text_content, 'plain', 'utf-8'))
-
-        # Render'ın IPv6 takılmasını engellemek için sadece IPv4 zorlaması
-        old_gai = socket.getaddrinfo
-        def custom_gai(*args, **kwargs):
-            # AF_INET = Sadece IPv4
-            res = old_gai(*args, **kwargs)
-            return [item for item in res if item[0] == socket.AF_INET]
-        
-        socket.getaddrinfo = custom_gai
-
-        try:
-            # IPv4 üzerinden SSL (465) bağlantısı
-            server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=15)
-            server.login(GMAIL_USER, GMAIL_PWD)
-            server.sendmail(GMAIL_USER, [to_email], msg.as_string())
-            server.quit()
-        finally:
-            # Soket fonksiyonunu orijinal haline geri döndür
-            socket.getaddrinfo = old_gai
-
-    except Exception as e:
-        raise RuntimeError(f"Gmail gönderme hatası: {str(e)}")
-# Şifreli gelen base64 verisini çözen fonksiyon
 def deşifre_et(payload_str: str):
     try:
         decoded_bytes = base64.b64decode(payload_str)
