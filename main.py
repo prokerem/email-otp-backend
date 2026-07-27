@@ -3,9 +3,15 @@ import base64
 import random
 import smtplib
 import os
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI(title="E-Ticaret OTP Sunucusu")
+# ... geri kalan kodlar ...
 
 app = FastAPI(title="E-Ticaret OTP Sunucusu")
 
@@ -27,23 +33,22 @@ GMAIL_PWD = os.environ.get("GMAIL_PWD", "ovsbbudvunoccpwj")
 class EncryptedPayload(BaseModel):
     payload: str  # React'ten gelecek base64 şifreli metin
 
-def gmail_gonder(TO, SUBJECT, TEXT):
-    try:
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.ehlo()
-        server.starttls()
-        server.login(GMAIL_USER, GMAIL_PWD)
-        
-        BODY = '\r\n'.join([
-            f'To: {TO}',
-            f'From: {GMAIL_USER}',
-            f'Subject: {SUBJECT}',
-            'Content-Type: text/plain; charset=utf-8',
-            '', 
-            TEXT
-        ]).encode('utf-8')
+def gmail_gonder(to_email: str, subject: str, text_content: str):
+    if not GMAIL_USER or not GMAIL_PWD:
+        raise RuntimeError("GMAIL_USER veya GMAIL_PWD çevre değişkenleri tanımlanmamış!")
 
-        server.sendmail(GMAIL_USER, [TO], BODY)
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = GMAIL_USER
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(text_content, 'plain', 'utf-8'))
+
+        # Port 587 (TLS) yerine Port 465 (SSL) kullanıyoruz.
+        # Bu değişiklik Render üzerindeki [Errno 101] ağ erişim hatasını çözer.
+        server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=15)
+        server.login(GMAIL_USER, GMAIL_PWD)
+        server.sendmail(GMAIL_USER, [to_email], msg.as_string())
         server.quit()
     except Exception as e:
         raise RuntimeError(f"Gmail gönderme hatası: {str(e)}")
