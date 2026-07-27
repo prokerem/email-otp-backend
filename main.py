@@ -11,9 +11,6 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="E-Ticaret OTP Sunucusu")
-# ... geri kalan kodlar ...
-
-app = FastAPI(title="E-Ticaret OTP Sunucusu")
 
 # CORS AYARLARI: React projenizin sunucuya erişebilmesi için zorunludur
 app.add_middleware(
@@ -26,8 +23,9 @@ app.add_middleware(
 
 AKTIF_KODLAR = {}
 
+# Çevre değişkenlerinden çekiyoruz (Varsayılan şifre kaldırıldı)
 GMAIL_USER = os.environ.get("GMAIL_USER", "kerempro4654@gmail.com")
-GMAIL_PWD = os.environ.get("GMAIL_PWD", "ovsbbudvunoccpwj")
+GMAIL_PWD = os.environ.get("GMAIL_PWD")
 
 # Veri modelleri
 class EncryptedPayload(BaseModel):
@@ -44,8 +42,7 @@ def gmail_gonder(to_email: str, subject: str, text_content: str):
         msg['Subject'] = subject
         msg.attach(MIMEText(text_content, 'plain', 'utf-8'))
 
-        # Port 587 (TLS) yerine Port 465 (SSL) kullanıyoruz.
-        # Bu değişiklik Render üzerindeki [Errno 101] ağ erişim hatasını çözer.
+        # Render üzerindeki network engellerini aşan Port 465 (SSL)
         server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=15)
         server.login(GMAIL_USER, GMAIL_PWD)
         server.sendmail(GMAIL_USER, [to_email], msg.as_string())
@@ -78,10 +75,10 @@ def python_signup(data: EncryptedPayload):
 
     try:
         rand_code = random.randint(100000, 999999)
-        SUBJECT = "Güvenlik Doğrulama Kodu"
-        TEXT = f"Merhaba {full_name},\n\nSisteme kayıt işleminiz için doğrulama kodunuz: {rand_code}\n\nBu kodu kimseyle paylaşmayınız."
+        subject = "Güvenlik Doğrulama Kodu"
+        text = f"Merhaba {full_name},\n\nSisteme kayıt işleminiz için doğrulama kodunuz: {rand_code}\n\nBu kodu kimseyle paylaşmayınız."
 
-        gmail_gonder(email, SUBJECT, TEXT)
+        gmail_gonder(email, subject, text)
         AKTIF_KODLAR[email] = rand_code
 
         return şifreli_yanıt({"status": "success", "message": "Güvenlik kodu gönderildi."})
@@ -96,7 +93,7 @@ def python_verify(data: EncryptedPayload):
     
     try:
         user_code = int(raw_data.get('code', 0))
-    except ValueError:
+    except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Kod formatı geçersiz.")
 
     if email in AKTIF_KODLAR and AKTIF_KODLAR[email] == user_code:
